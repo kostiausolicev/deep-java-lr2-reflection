@@ -2,52 +2,38 @@ package org.example.generator;
 
 import org.example.Generatable;
 
-import java.lang.reflect.Array;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.lang.reflect.*;
+import java.util.*;
 
 public class Generator {
     private final Random random = new Random();
+
+    // Reflection не умеет автоматически находить все реализации интерфейса в classpath,
+    // поэтому допустимые конкретные классы регистрируются явно.
     private final Map<Class<?>, List<Class<?>>> implementations = new HashMap<>();
 
     @SafeVarargs
-    public final <T> Generator registerImplementations(
+    public final <T> void registerImplementations(
             Class<T> abstraction,
             Class<? extends T>... implementationClasses
     ) {
         if (!abstraction.isInterface() && !Modifier.isAbstract(abstraction.getModifiers())) {
-            throw new IllegalArgumentException(
-                    "Implementation registration is only supported for interfaces and abstract classes: "
-                            + abstraction.getName()
-            );
+            throw new IllegalArgumentException("Implementation registration is only supported for interfaces and abstract classes: " + abstraction.getName());
         }
         if (implementationClasses.length == 0) {
-            throw new IllegalArgumentException(
-                    "At least one implementation must be registered for " + abstraction.getName()
-            );
+            throw new IllegalArgumentException("At least one implementation must be registered for " + abstraction.getName());
         }
 
         for (Class<? extends T> implementationClass : implementationClasses) {
-            if (implementationClass.isInterface()
-                    || Modifier.isAbstract(implementationClass.getModifiers())) {
-                throw new IllegalArgumentException(
-                        "Registered implementation must be a concrete class: "
-                                + implementationClass.getName()
-                );
+            if (!abstraction.isAssignableFrom(implementationClass)) {
+                throw new IllegalArgumentException(implementationClass.getName() + " is not an implementation of " + abstraction.getName());
+            }
+            if (implementationClass.isInterface() || Modifier.isAbstract(implementationClass.getModifiers())) {
+                throw new IllegalArgumentException("Registered implementation must be a concrete class: " + implementationClass.getName());
             }
         }
 
         implementations.put(abstraction, List.of(implementationClasses));
-        return this;
     }
 
     public Object generateValueOfType(Class<?> clazz) throws InvocationTargetException, InstantiationException, IllegalAccessException {
@@ -62,6 +48,12 @@ public class Generator {
         Object map = generateMap(clazz);
         if (map != null) return map;
 
+        // Создать интерфейс или абстрактный класс напрямую нельзя. Сначала заменяем
+        // запрошенный тип одной из зарегистрированных конкретных реализаций.
+        if (clazz.isInterface() || Modifier.isAbstract(clazz.getModifiers())) {
+            clazz = getRandomImplementation(clazz);
+        }
+
         Constructor<?>[] constructors = clazz.getDeclaredConstructors();
         Constructor<?> constructor = getGeneratableConstructor(constructors);
         if (constructor == null) {
@@ -70,7 +62,7 @@ public class Generator {
 
         Type[] argumentTypes = constructor.getGenericParameterTypes();
         if (argumentTypes.length == 0) {
-            // return without allocations
+            // Для конструктора без параметров массив аргументов создавать не требуется.
             return constructor.newInstance();
         }
         Object[] arguments = new Object[argumentTypes.length];
@@ -86,6 +78,8 @@ public class Generator {
             return generateValueOfType(clazz);
         }
         if (type instanceof ParameterizedType parameterizedType) {
+            // getParameterTypes() потерял бы Product в List<Product> из-за стирания типов.
+            // ParameterizedType позволяет рекурсивно сгенерировать элементы нужного типа.
             Type rawType = parameterizedType.getRawType();
             Type[] typeArguments = parameterizedType.getActualTypeArguments();
 
@@ -212,6 +206,17 @@ public class Generator {
             map.put(key, value);
         }
         return map;
+    }
+
+    private Class<?> getRandomImplementation(Class<?> abstraction) {
+        List<Class<?>> registeredImplementations = implementations.get(abstraction);
+        if (registeredImplementations == null || registeredImplementations.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "No concrete implementations registered for " + abstraction.getName()
+            );
+        }
+
+        return registeredImplementations.get(random.nextInt(registeredImplementations.size()));
     }
 
     private Constructor<?> getRandomConstructor(Constructor<?>[] constructors) {

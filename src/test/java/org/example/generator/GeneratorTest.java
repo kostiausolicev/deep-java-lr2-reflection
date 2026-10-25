@@ -103,9 +103,51 @@ class GeneratorTest {
         }
     }
 
+    @Test
+    void generatesRegisteredInterfaceImplementation() throws Exception {
+        generator.registerImplementations(TestShape.class, TestCircle.class);
+
+        Object generated = generator.generateValueOfType(TestShape.class);
+
+        assertInstanceOf(TestCircle.class, generated);
+        assertInstanceOf(TestShape.class, generated);
+    }
+
+    @Test
+    void generatesRegisteredAbstractClassImplementation() throws Exception {
+        generator.registerImplementations(TestVehicle.class, TestCar.class);
+
+        Object generated = generator.generateValueOfType(TestVehicle.class);
+
+        assertInstanceOf(TestCar.class, generated);
+        assertInstanceOf(TestVehicle.class, generated);
+    }
+
     private enum TestColor {
         RED,
         GREEN,
         BLUE
+    }
+
+    interface TestShape {
+    }
+
+    static final class TestCircle implements TestShape {
+        private final int radius;
+
+        TestCircle(int radius) {
+            this.radius = radius;
+        }
+    }
+
+    abstract static class TestVehicle {
+    }
+
+    static final class TestCar extends TestVehicle {
+        private final String model;
+
+        TestCar(String model) {
+            this.model = model;
+        }
     }
 }
